@@ -70,21 +70,23 @@ func expvarHandler(w http.ResponseWriter, r *http.Request) {
 	data := Data()
 	instances := data.Instances.Instance
 	for _, instance := range instances {
+		namePrefix := strings.ToLower(*instance.PackageType)
 		labels := map[string]string{
 			"region":      *instance.Region,
 			"remark":      *instance.Remark,
 			"instance_id": *instance.InstanceId,
 			"status":      *instance.Status,
+			"name":        namePrefix,
 		}
-		namePrefix := strings.ToLower(*instance.PackageType)
+		metricsName := "alibaba_billing_package"
 		metricTotal := prometheus.NewGauge(
 			prometheus.GaugeOpts{
-				Name:        fmt.Sprintf("%s_total", namePrefix),
+				Name:        fmt.Sprintf("%s_total", metricsName),
 				ConstLabels: labels,
 			})
 		metricsPercent := prometheus.NewGauge(
 			prometheus.GaugeOpts{
-				Name:        fmt.Sprintf("%s_percent", namePrefix),
+				Name:        fmt.Sprintf("%s_percent", metricsName),
 				ConstLabels: labels,
 			})
 		remain := parseValue(*instance.RemainingAmount, *instance.RemainingAmountUnit)
