@@ -15,7 +15,12 @@ import (
 )
 
 var (
-	client *bssopenapi20171214.Client
+	client          *bssopenapi20171214.Client
+	MetricsName     = "alibaba_billing_package"
+	GaugeVecTotal   *prometheus.GaugeVec
+	GaugeVecPercent *prometheus.GaugeVec
+	LABELS          = []string{"region", "remark", "instance_id", "status", "name"}
+	handler         = promhttp.Handler()
 )
 
 func init() {
@@ -37,6 +42,16 @@ func init() {
 	if err != nil {
 		panic(err)
 	}
+
+	GaugeVecTotal = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: fmt.Sprintf("%s_total", MetricsName),
+		}, LABELS)
+	GaugeVecPercent = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: fmt.Sprintf("%s_percent", MetricsName),
+		}, LABELS)
+	prometheus.MustRegister(GaugeVecPercent, GaugeVecTotal)
 }
 
 func Data() *bssopenapi20171214.QueryResourcePackageInstancesResponseBodyData {
@@ -78,25 +93,14 @@ func expvarHandler(w http.ResponseWriter, r *http.Request) {
 			"status":      *instance.Status,
 			"name":        namePrefix,
 		}
-		metricsName := "alibaba_billing_package"
-		metricTotal := prometheus.NewGauge(
-			prometheus.GaugeOpts{
-				Name:        fmt.Sprintf("%s_total", metricsName),
-				ConstLabels: labels,
-			})
-		metricsPercent := prometheus.NewGauge(
-			prometheus.GaugeOpts{
-				Name:        fmt.Sprintf("%s_percent", metricsName),
-				ConstLabels: labels,
-			})
+
 		remain := parseValue(*instance.RemainingAmount, *instance.RemainingAmountUnit)
 		total := parseValue(*instance.TotalAmount, *instance.TotalAmountUnit)
-		metricTotal.Set(remain)
-		metricsPercent.Set(remain / total)
-		prometheus.MustRegister(metricTotal, metricsPercent)
+		GaugeVecTotal.With(labels).Set(remain)
+		GaugeVecPercent.With(labels).Set(remain / total)
 
 	}
-	promhttp.Handler().ServeHTTP(w, r)
+	handler.ServeHTTP(w, r)
 }
 
 func main() {
