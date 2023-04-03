@@ -6,21 +6,25 @@ import (
 	bssopenapi20171214 "github.com/alibabacloud-go/bssopenapi-20171214/v3/client"
 	openapi "github.com/alibabacloud-go/darabonba-openapi/v2/client"
 	"github.com/alibabacloud-go/tea/tea"
+	"github.com/gorilla/mux"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/spf13/viper"
+	"log"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 )
 
 var (
-	client          *bssopenapi20171214.Client
-	MetricsName     = "alibaba_billing_package"
-	GaugeVecTotal   *prometheus.GaugeVec
-	GaugeVecPercent *prometheus.GaugeVec
-	LABELS          = []string{"region", "remark", "instance_id", "status", "name"}
-	handler         = promhttp.Handler()
+	client           *bssopenapi20171214.Client
+	MetricsName      = "alibaba_billing_package"
+	GaugeVecRemain   *prometheus.GaugeVec
+	GaugeVecCapacity *prometheus.GaugeVec
+	LABELS           = []string{"region", "remark", "instance_id", "status", "name"}
+	handler          = promhttp.Handler()
+	Log              = log.New(os.Stdout, "", 0)
 )
 
 func init() {
@@ -43,15 +47,15 @@ func init() {
 		panic(err)
 	}
 
-	GaugeVecTotal = prometheus.NewGaugeVec(
+	GaugeVecRemain = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
-			Name: fmt.Sprintf("%s_total", MetricsName),
+			Name: fmt.Sprintf("%s_remain", MetricsName),
 		}, LABELS)
-	GaugeVecPercent = prometheus.NewGaugeVec(
+	GaugeVecCapacity = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
-			Name: fmt.Sprintf("%s_percent", MetricsName),
+			Name: fmt.Sprintf("%s_capacity", MetricsName),
 		}, LABELS)
-	prometheus.MustRegister(GaugeVecPercent, GaugeVecTotal)
+	prometheus.MustRegister(GaugeVecRemain, GaugeVecCapacity)
 }
 
 func Data() *bssopenapi20171214.QueryResourcePackageInstancesResponseBodyData {
@@ -96,14 +100,25 @@ func expvarHandler(w http.ResponseWriter, r *http.Request) {
 
 		remain := parseValue(*instance.RemainingAmount, *instance.RemainingAmountUnit)
 		total := parseValue(*instance.TotalAmount, *instance.TotalAmountUnit)
-		GaugeVecTotal.With(labels).Set(remain)
-		GaugeVecPercent.With(labels).Set(remain / total)
+		GaugeVecRemain.With(labels).Set(remain)
+		GaugeVecCapacity.With(labels).Set(total)
 
 	}
 	handler.ServeHTTP(w, r)
 }
 
+func loggingMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		log.Printf("%s %s", r.Method, r.URL.Path)
+		next.ServeHTTP(w, r)
+	})
+}
+
 func main() {
-	http.HandleFunc("/metrics", expvarHandler)
-	http.ListenAndServe(":8080", nil)
+	r := mux.NewRouter()
+	r.Use(loggingMiddleware)
+	r.HandleFunc("/metrics", expvarHandler)
+	if err := http.ListenAndServe(":8080", r); err != nil {
+		panic(err)
+	}
 }
